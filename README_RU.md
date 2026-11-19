@@ -16,12 +16,12 @@ Telegram-бот на Python + aiogram 3. В боте только Google Gemini:
 Не публикуй ключи в GitHub и не отправляй их в чаты.
 
 ## 3. Загрузка на GitHub
-Распакуй архив и загрузи **всё содержимое** в корень нового GitHub-репозитория, включая скрытый файл `.python-version`, `render.yaml`, `requirements.txt`, `bot.py` и папки `handlers/`, `providers/`. Не загружай ZIP как вложенную папку: `render.yaml` должен лежать в корне репозитория.
+Распакуй архив и загрузи содержимое папки в новый GitHub-репозиторий.
 Файл `.env` не добавляй. В репозитории есть только `.env.example` с названиями переменных.
 
 ## 4. Render
-Создай **Background Worker** (не Web Service) и подключи GitHub-репозиторий. Это Telegram-бот с long polling: ему не нужен публичный HTTP-сайт или порт.
-- Runtime: Python (версия закреплена на Python 3.13.5 через `PYTHON_VERSION` и `.python-version`)
+Создай Background Worker и подключи GitHub-репозиторий:
+- Runtime: Python
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `python bot.py`
 
@@ -30,7 +30,7 @@ Telegram-бот на Python + aiogram 3. В боте только Google Gemini:
 - `GEMINI_API_KEY_1` — первый ключ
 - `GEMINI_API_KEY_2` — второй ключ
 - `GEMINI_API_KEY_3` — третий ключ
-- `GEMINI_MODEL` — `gemini-3.8-flash` (текущая стабильная модель; можно оставить значение из `render.yaml`)
+- `GEMINI_MODEL` — `gemini-3.8-flash`
 
 Если ключей пока меньше трёх, не заполняй отсутствующие переменные: соответствующие кнопки будут показываться как ненастроенные.
 
@@ -48,9 +48,3 @@ Telegram-бот на Python + aiogram 3. В боте только Google Gemini:
 
 ## История
 История хранится в RAM процесса. После перезапуска Render она исчезнет. В этом варианте история не записывается в базу данных или на диск.
-
-## Если Render показывает ошибку
-- `BOT_TOKEN` и хотя бы один `GEMINI_API_KEY_1/2/3` должны быть заданы в **Environment**.
-- Проверь, что в настройках сервиса выбран именно **Background Worker**, а не Web Service.
-- В **Logs** найди первую ошибку после `Traceback`: она обычно показывает причину (неверный токен, API key, квота или доступ к модели).
-- После изменения переменных окружения запусти новый deploy.

@@ -30,7 +30,11 @@ def _client_for(number: int) -> genai.Client:
     if not key:
         raise GeminiUnavailableError("API key is not configured")
     if number not in _clients:
-        _clients[number] = genai.Client(api_key=key)
+        # Ограничиваем сетевое ожидание, чтобы бот не зависал бесконечно.
+        _clients[number] = genai.Client(
+            api_key=key,
+            http_options=types.HttpOptions(timeout=30000),
+        )
     return _clients[number]
 
 
@@ -83,34 +87,35 @@ def _translate_error(exc: Exception) -> Exception:
     return GeminiUnavailableError(str(exc))
 
 
-async def ask_gemini(user_id: int, key_number: int, prompt: str) -> str:
+async def _ask_with_key(user_id: int, key_number: int, prompt: str) -> str:
     client = _client_for(key_number)
     history_key = (user_id, key_number)
     lock = _locks.setdefault(history_key, asyncio.Lock())
 
     async with lock:
-        old_history = _histories.get(history_key, [])
-        contents = list(old_history)
+        contents = list(_histories.get(history_key, []))
         contents.append(types.Content(
             role="user",
             parts=[types.Part.from_text(text=prompt)],
         ))
-
         try:
-            response = await client.aio.models.generate_content(
-                model=MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=(
-                        "Ты полезный русскоязычный помощник. "
-                        "Отвечай понятно и по делу. Если пользователь пишет на другом языке, "
-                        "можешь отвечать на его языке."
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=MODEL,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        system_instruction=(
+                            "Ты полезный русскоязычный помощник. "
+                            "Отвечай понятно и по делу. Если пользователь пишет на другом языке, "
+                            "можешь отвечать на его языке."
+                        ),
                     ),
                 ),
+                timeout=35,
             )
             answer = (response.text or "").strip()
             if not answer:
-                raise GeminiUnavailableError("Gemini returned an empty response")
+                raise GeminiTemporaryError("Gemini вернул пустой ответ")
 
             updated = contents + [types.Content(
                 role="model",
@@ -118,11 +123,38 @@ async def ask_gemini(user_id: int, key_number: int, prompt: str) -> str:
             )]
             _histories[history_key] = updated[-MAX_HISTORY_MESSAGES:]
             return answer
+        except asyncio.TimeoutError as exc:
+            raise GeminiTemporaryError("Превышено время ожидания ответа Gemini") from exc
         except (GeminiQuotaError, GeminiTemporaryError, GeminiUnavailableError):
             raise
         except Exception as exc:
             logger.warning("Gemini API %s request failed: %s", key_number, exc)
             raise _translate_error(exc) from exc
+
+
+async def ask_gemini(user_id: int, preferred_key: int, prompt: str) -> tuple[str, int]:
+    """Сначала использует выбранный ключ, затем автоматически пробует остальные."""
+    keys = available_keys()
+    if not keys:
+        raise GeminiUnavailableError("Не настроен ни один Gemini API key")
+
+    ordered = ([preferred_key] if preferred_key in keys else []) + [
+        number for number in keys if number != preferred_key
+    ]
+    errors: list[Exception] = []
+
+    for number in ordered:
+        try:
+            return await _ask_with_key(user_id, number, prompt), number
+        except (GeminiQuotaError, GeminiTemporaryError, GeminiUnavailableError) as exc:
+            errors.append(exc)
+            logger.warning("Gemini API %s failed; trying next configured key", number)
+
+    for error_type in (GeminiQuotaError, GeminiTemporaryError, GeminiUnavailableError):
+        for exc in errors:
+            if isinstance(exc, error_type):
+                raise error_type(str(exc))
+    raise GeminiUnavailableError("Все настроенные Gemini API недоступны")
 
 
 def clear_user_history(user_id: int) -> None:

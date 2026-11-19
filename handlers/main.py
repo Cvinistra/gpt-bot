@@ -16,38 +16,14 @@ from providers.gemini import (
 router = Router()
 logger = logging.getLogger(__name__)
 
-
-def split_telegram_text(text: str, limit: int = 4000) -> list[str]:
-    """Split text without exceeding Telegram's UTF-16 message-length limit."""
-    chunks: list[str] = []
-    current: list[str] = []
-    units = 0
-    for char in text:
-        char_units = len(char.encode("utf-16-le")) // 2
-        if current and units + char_units > limit:
-            chunks.append("".join(current))
-            current = []
-            units = 0
-        current.append(char)
-        units += char_units
-    if current:
-        chunks.append("".join(current))
-    return chunks or ["Пустой ответ от Gemini."]
-
 # Активный API выбирается отдельно для каждого пользователя.
 selected_key: dict[int, int] = {}
 
 
-def ensure_selected_key(user_id: int) -> int:
-    if user_id not in selected_key:
-        ready = available_keys()
-        selected_key[user_id] = ready[0] if ready else 1
-    return selected_key[user_id]
-
-
 def main_keyboard(user_id: int):
     builder = InlineKeyboardBuilder()
-    current = ensure_selected_key(user_id)
+    ready = available_keys()
+    current = selected_key.get(user_id, ready[0] if ready else 1)
     for number in (1, 2, 3):
         mark = " ✅" if number == current else ""
         state = "🟢" if number in available_keys() else "⚪"
@@ -61,8 +37,8 @@ def main_keyboard(user_id: int):
 
 
 def welcome_text(user_id: int) -> str:
-    current = ensure_selected_key(user_id)
     ready = available_keys()
+    current = selected_key.get(user_id, ready[0] if ready else 1)
     if not ready:
         status = "⚠️ Ни один API-ключ пока не добавлен."
     else:
@@ -80,23 +56,27 @@ def welcome_text(user_id: int) -> str:
 @router.message(CommandStart())
 async def start(message: Message):
     user_id = message.from_user.id
-    ensure_selected_key(user_id)
+    selected_key.setdefault(user_id, (available_keys() or [1])[0])
     await message.answer(welcome_text(user_id), reply_markup=main_keyboard(user_id))
 
 
 @router.message(Command("menu"))
 async def menu(message: Message):
     user_id = message.from_user.id
-    ensure_selected_key(user_id)
+    selected_key.setdefault(user_id, (available_keys() or [1])[0])
     await message.answer(welcome_text(user_id), reply_markup=main_keyboard(user_id))
 
 
 @router.callback_query(F.data.startswith("select:"))
 async def select_api(callback: CallbackQuery):
     user_id = callback.from_user.id
-    number = int(callback.data.split(":", 1)[1])
+    try:
+        number = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("Некорректный номер API.", show_alert=True)
+        return
 
-    if number not in available_keys():
+    if number not in (1, 2, 3) or number not in available_keys():
         await callback.answer(
             f"Gemini API №{number} не настроен. Добавь его ключ в Render.",
             show_alert=True,
@@ -132,22 +112,20 @@ async def chat(message: Message):
         return
 
     user_id = message.from_user.id
-    ensure_selected_key(user_id)
+    selected_key.setdefault(user_id, (available_keys() or [1])[0])
     key_number = selected_key[user_id]
-
-    if key_number not in available_keys():
-        await message.answer(
-            f"⚠️ Gemini API №{key_number} не настроен или недоступен. "
-            "Выбери другой API в меню."
-        )
-        return
 
     status = await message.answer("⏳ Gemini готовит ответ…")
     try:
-        answer = await ask_gemini(user_id, key_number, message.text)
+        answer, used_key = await ask_gemini(user_id, key_number, message.text)
         # Telegram ограничивает длину одного сообщения.
-        chunks = split_telegram_text(answer)
-        await status.edit_text(chunks[0], parse_mode=None)
+        chunks = [answer[i:i + 4000] for i in range(0, len(answer), 4000)] or ["Пустой ответ от Gemini."]
+        if used_key != key_number:
+            logger.info("User %s: fallback from API %s to API %s succeeded", user_id, key_number, used_key)
+        await status.edit_text(
+            (f"🔁 Использован резервный Gemini API №{used_key}.\n\n" if used_key != key_number else "") + chunks[0],
+            parse_mode=None,
+        )
         for chunk in chunks[1:]:
             await message.answer(chunk, parse_mode=None)
     except GeminiQuotaError:
@@ -157,7 +135,7 @@ async def chat(message: Message):
         )
     except GeminiTemporaryError:
         await status.edit_text(
-            f"⏳ Gemini API №{key_number} временно ограничил запросы или не отвечает. "
+            "⏳ Все настроенные Gemini API временно ограничены или не отвечают. "
             "Попробуй немного позже."
         )
     except GeminiUnavailableError:
