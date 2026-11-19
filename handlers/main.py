@@ -3,6 +3,7 @@ import logging
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from providers.gemini import (
@@ -19,6 +20,17 @@ logger = logging.getLogger(__name__)
 # Активный API выбирается отдельно для каждого пользователя.
 selected_key: dict[int, int] = {}
 
+
+
+
+async def safe_edit(message: Message, text: str, **kwargs):
+    """Не падает, если Telegram считает, что текст/клавиатура не изменились."""
+    try:
+        return await message.edit_text(text, **kwargs)
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return None
+        raise
 
 def main_keyboard(user_id: int):
     builder = InlineKeyboardBuilder()
@@ -86,7 +98,7 @@ async def select_api(callback: CallbackQuery):
     selected_key[user_id] = number
     await callback.answer(f"Выбран Gemini API №{number}")
     if callback.message:
-        await callback.message.edit_text(
+        await safe_edit(callback.message, 
             welcome_text(user_id),
             reply_markup=main_keyboard(user_id),
         )
@@ -99,7 +111,7 @@ async def clear_history(callback: CallbackQuery):
     clear_user_history(callback.from_user.id)
     await callback.answer("История диалога очищена")
     if callback.message:
-        await callback.message.edit_text(
+        await safe_edit(callback.message, 
             "🗑 <b>Новый диалог начат.</b>\n\n"
             "Выбери API и отправь сообщение.",
             reply_markup=main_keyboard(callback.from_user.id),
@@ -122,27 +134,27 @@ async def chat(message: Message):
         chunks = [answer[i:i + 4000] for i in range(0, len(answer), 4000)] or ["Пустой ответ от Gemini."]
         if used_key != key_number:
             logger.info("User %s: fallback from API %s to API %s succeeded", user_id, key_number, used_key)
-        await status.edit_text(
+        await safe_edit(status, 
             (f"🔁 Использован резервный Gemini API №{used_key}.\n\n" if used_key != key_number else "") + chunks[0],
             parse_mode=None,
         )
         for chunk in chunks[1:]:
             await message.answer(chunk, parse_mode=None)
     except GeminiQuotaError:
-        await status.edit_text(
+        await safe_edit(status, 
             f"🔴 <b>Лимит исчерпан</b> для Gemini API №{key_number}.\n"
             "Попробуй другой ключ или проверь квоту и ограничения в Google AI Studio."
         )
     except GeminiTemporaryError:
-        await status.edit_text(
+        await safe_edit(status, 
             "⏳ Все настроенные Gemini API временно ограничены или не отвечают. "
             "Попробуй немного позже."
         )
     except GeminiUnavailableError:
-        await status.edit_text(
+        await safe_edit(status, 
             f"⚠️ <b>Gemini API №{key_number} недоступен.</b>\n"
             "Проверь ключ, доступ к модели и настройки проекта Google AI."
         )
     except Exception:
         logger.exception("Unexpected error while processing Telegram message")
-        await status.edit_text("❌ Произошла непредвиденная ошибка. Подробности есть в логах Render.")
+        await safe_edit(status, "❌ Произошла непредвиденная ошибка. Подробности есть в логах Render.")

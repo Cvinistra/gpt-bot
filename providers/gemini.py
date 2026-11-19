@@ -33,7 +33,7 @@ def _client_for(number: int) -> genai.Client:
         # Ограничиваем сетевое ожидание, чтобы бот не зависал бесконечно.
         _clients[number] = genai.Client(
             api_key=key,
-            http_options=types.HttpOptions(timeout=30000),
+            http_options=types.HttpOptions(timeout=15000),
         )
     return _clients[number]
 
@@ -75,7 +75,7 @@ def _translate_error(exc: Exception) -> Exception:
         or "limit: 0" in message
     ):
         return GeminiQuotaError(str(exc))
-    if code == 429:
+    if code in (429, 503, 502, 504, 500, 408):
         return GeminiTemporaryError(str(exc))
     if code in (401, 403, 404, 400) or any(
         phrase in message for phrase in
@@ -111,7 +111,7 @@ async def _ask_with_key(user_id: int, key_number: int, prompt: str) -> str:
                         ),
                     ),
                 ),
-                timeout=35,
+                timeout=20,
             )
             answer = (response.text or "").strip()
             if not answer:

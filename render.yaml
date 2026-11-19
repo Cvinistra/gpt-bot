@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: gemini-telegram-bot
     runtime: python
     plan: starter

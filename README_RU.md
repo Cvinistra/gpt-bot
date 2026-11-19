@@ -48,3 +48,26 @@ Telegram-бот на Python + aiogram 3. В боте только Google Gemini:
 
 ## История
 История хранится в RAM процесса. После перезапуска Render она исчезнет. В этом варианте история не записывается в базу данных или на диск.
+
+
+## Важно: тип сервиса на Render
+
+Это Telegram-бот на long polling, поэтому в Render он должен быть создан как **Background Worker**, а не Web Service.
+Сообщение `No open ports detected` для Background Worker не является ошибкой. Если оно появляется вместе с ошибкой о необходимости порта и сервис помечен как Web Service, создай Background Worker из этого же репозитория с командой запуска `python bot.py`.
+
+## Исправления последней версии
+
+- Игнорируется безвредная ошибка Telegram `message is not modified` при повторном обновлении одинакового меню.
+- Для Gemini 503/429/5xx выполняется переход к следующему настроенному ключу.
+- Сокращено ожидание одного запроса, чтобы бот не оставлял пользователя надолго без ответа.
+
+
+## Режим Render Web Service
+
+Эта версия запускает одновременно Telegram long polling и HTTP health server:
+- Render направляет HTTP-проверки на `/health` (также отвечает `/`).
+- Сервер слушает `0.0.0.0:$PORT`, как требует Render Web Service.
+- Start Command: `python bot.py`.
+- Build Command: `pip install -r requirements.txt`.
+
+На бесплатном Render Web Service приложение может засыпать после периода отсутствия входящих HTTP-запросов. Telegram long polling сам по себе не гарантирует, что Render будет считать сервис активным. Поэтому бесплатный Web Service не гарантирует круглосуточную доступность бота.
