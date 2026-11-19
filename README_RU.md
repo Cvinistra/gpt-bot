@@ -16,12 +16,12 @@ Telegram-бот на Python + aiogram 3. В боте только Google Gemini:
 Не публикуй ключи в GitHub и не отправляй их в чаты.
 
 ## 3. Загрузка на GitHub
-Распакуй архив и загрузи в корень нового GitHub-репозитория файлы `bot.py`, `requirements.txt`, папки `handlers/`, `providers/` и `render.yaml`. Не загружай ZIP как вложенную папку: `render.yaml` должен лежать в корне репозитория.
+Распакуй архив и загрузи **всё содержимое** в корень нового GitHub-репозитория, включая скрытый файл `.python-version`, `render.yaml`, `requirements.txt`, `bot.py` и папки `handlers/`, `providers/`. Не загружай ZIP как вложенную папку: `render.yaml` должен лежать в корне репозитория.
 Файл `.env` не добавляй. В репозитории есть только `.env.example` с названиями переменных.
 
 ## 4. Render
 Создай **Background Worker** (не Web Service) и подключи GitHub-репозиторий. Это Telegram-бот с long polling: ему не нужен публичный HTTP-сайт или порт.
-- Runtime: Python
+- Runtime: Python (версия закреплена на Python 3.13.5 через `PYTHON_VERSION` и `.python-version`)
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `python bot.py`
 
