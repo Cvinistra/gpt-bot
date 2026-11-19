@@ -71,3 +71,12 @@ Telegram-бот на Python + aiogram 3. В боте только Google Gemini:
 - Build Command: `pip install -r requirements.txt`.
 
 На бесплатном Render Web Service приложение может засыпать после периода отсутствия входящих HTTP-запросов. Telegram long polling сам по себе не гарантирует, что Render будет считать сервис активным. Поэтому бесплатный Web Service не гарантирует круглосуточную доступность бота.
+
+
+## Telegram Webhook для Render Web Service
+
+В этой версии используется **Webhook вместо getUpdates/Long Polling**. Это правильный режим для Web Service и устраняет конфликт `TelegramConflictError: terminated by other getUpdates request`, если старые экземпляры polling остановлены.
+
+Render автоматически предоставляет `RENDER_EXTERNAL_URL` и `PORT`. В Environment добавь `WEBHOOK_SECRET` — случайную строку из латинских букв и цифр длиной 32–64 символа. После Deploy в логах должно появиться `Telegram webhook configured`.
+
+Важно: останови старый Worker, локально запущенный бот и все другие сервисы, использующие тот же BOT_TOKEN. Не запускай одновременно старую polling-версию и webhook-версию. У Telegram один бот не может одновременно использовать webhook и getUpdates.
